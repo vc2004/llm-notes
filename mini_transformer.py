@@ -12,44 +12,55 @@ class TransformerEncoder(nn.Module):
         self.norm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(0.1)
 
-    # 删除多余的类嵌套定义
     def forward(self, src):
         """
         参数:
-            src: [batch_size, seq_len, d_model]
+            src: 输入张量，形状为 [batch_size, seq_len, d_model]
+                即(批大小, 序列长度, 模型维度)
         返回:
-            [batch_size, seq_len, d_model]
-        流程:
-        1. 位置编码
-        2. 自注意力 + 残差连接 + 层归一化
-        3. 前馈网络 + 残差连接 + 层归一化
+            形状为 [batch_size, seq_len, d_model] 的输出张量
+        处理流程:
+        1. 添加位置编码
+        2. 自注意力计算 + 残差连接 + 层归一化
+        3. 前馈网络计算 + 残差连接 + 层归一化
         """
-        # 输入维度应为 (batch_size, seq_len, d_model)
+        # 第一步：添加位置编码
+        # 位置编码会给每个token添加位置信息，使模型知道token的顺序
         src = self.pos_encoder(src)
         
-        # 保存原始维度用于残差连接
+        # 保存原始输入用于后续残差连接
+        # 残差连接可以缓解梯度消失问题
         src_orig = src
         
-        # 调整维度为 (seq_len, batch_size, d_model)
+        # 调整维度顺序以适应PyTorch多头注意力层的输入要求
+        # 从 [batch, seq, dim] 变为 [seq, batch, dim]
         src = src.permute(1, 0, 2)
         
-        # 自注意力机制
-        attn_output, attn_weights = self.self_attn(src, src, src)  # 获取注意力权重
-        self.last_attn = attn_weights  # 保存供可视化
+        # 第二步：自注意力计算
+        # attn_output: 自注意力后的输出 [seq, batch, dim]
+        # attn_weights: 注意力权重矩阵 [batch, seq, seq]
+        attn_output, attn_weights = self.self_attn(src, src, src)
+        self.last_attn = attn_weights  # 保存权重供可视化分析
         
-        # 恢复维度 (batch_size, seq_len, d_model)
+        # 恢复原始维度顺序 [seq, batch, dim] -> [batch, seq, dim]
         attn_output = attn_output.permute(1, 0, 2)
         
-        # 残差连接
+        # 残差连接和层归一化
+        # 1. 残差连接：将原始输入与注意力输出相加
+        # 2. Dropout: 随机丢弃部分神经元防止过拟合
+        # 3. 层归一化：稳定网络训练
         src = src_orig + self.dropout(attn_output)
         src = self.norm(src)
         
-        # 前馈网络
+        # 第三步：前馈神经网络(FFN)
+        # FFN包含两个线性变换和ReLU激活函数
+        # 公式: FFN(x) = W2 * ReLU(W1 * x + b1) + b2
         ff_output = self.linear2(torch.relu(self.linear1(src)))
+        
+        # 再次进行残差连接和层归一化
         src = src + self.dropout(ff_output)
         return self.norm(src)
 
-# 删除多余的类定义结尾
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super().__init__()
